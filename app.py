@@ -6,6 +6,46 @@ import_secrets()
 from utils.google_utils import get_google_credentials, get_events
 from utils.twilio_utils import send_twilio_message
 
+from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
+
+ITALIAN_MONTHS = [
+    "Gennaio", "Febbraio", "Marzo", "Aprile", "Maggio", "Giugno",
+    "Luglio", "Agosto", "Settembre", "Ottobre", "Novembre", "Dicembre",
+]
+
+def format_italian_datetime(iso_dt: str, tz: str = "Europe/Rome") -> str:
+    """
+    Convert an ISO datetime string with offset (e.g. "2025-10-11T15:00:00+02:00" or "...Z")
+    to either:
+      - "Domani <D> <Mese> alle HH:MM" if the datetime (in the given tz) is tomorrow, or
+      - "<D> <Mese> alle HH:MM" otherwise.
+
+    Returns a simple string (no localization library required).
+    """
+    # Accept trailing 'Z' for UTC
+    if iso_dt.endswith("Z"):
+        iso_dt = iso_dt[:-1] + "+00:00"
+
+    # parse ISO — fromisoformat handles offsets like "+02:00"
+    dt = datetime.fromisoformat(iso_dt)
+    # convert to target timezone (makes comparison reliable)
+    local_dt = dt.astimezone(ZoneInfo(tz))
+
+    today = datetime.now(ZoneInfo(tz)).date()
+    tomorrow = today + timedelta(days=1)
+    local_date = local_dt.date()
+
+    day = local_dt.day
+    month_name = ITALIAN_MONTHS[local_dt.month - 1]
+    time_str = local_dt.strftime("%H:%M")
+
+    if local_date == tomorrow:
+        return f"Domani {day} {month_name} alle {time_str}"
+    else:
+        return f"{day} {month_name} alle {time_str}"
+
+
 st.title("Invia un messaggio di reminder a tutti i pazienti di domani")
 
 if st.button("Trova contatti a cui inviare il messaggio"):
@@ -19,10 +59,12 @@ if st.button("Trova contatti a cui inviare il messaggio"):
             st.write("Non ho trovato nessun paziente per domani")
         else:
             
-            schedules = "\n".join(["- {name} alle {time}".format(name=each["name"], time = each["start"]) for each in appointments])
+            schedules = "\n".join(["- **{name}**: {time}".format(name=each["name"], time = format_italian_datetime(each["start"])) for each in appointments])
 
             st.write(f"""Ho trovato questi appuntamenti:
-                     {schedules}""")
+
+{schedules}
+""")
             
             if st.button("Invia un promemoria a questi contatti"):
                 for appointment in appointments.items():
