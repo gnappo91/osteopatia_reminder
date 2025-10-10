@@ -69,11 +69,15 @@ def create_appointment_summary(appointments):
 """
 
 st.title("Invia un messaggio di reminder a tutti i pazienti di domani")
-
+st.session_state["google_credentials"] = None
 if st.button("Trova contatti a cui inviare il messaggio"):
-    with st.spinner("Authenticating with Google..."):
-        creds = get_google_credentials()
+    if not st.session_state["google_gredentials"]:
+        with st.spinner("Authenticating with Google..."):
+            creds = get_google_credentials()
+            st.session_state["google_credentials"] = creds
 
+    else:
+        creds = st.session_state["google_credentials"]
     appointments = get_events(creds)
     if not appointments:
         st.write("Non ho trovato nessun paziente per domani")
