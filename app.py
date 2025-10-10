@@ -74,21 +74,20 @@ if st.button("Trova contatti a cui inviare il messaggio"):
     with st.spinner("Authenticating with Google..."):
         creds = get_google_credentials()
 
-    with st.spinner("Loading Calendar & Contacts..."):
-
-        appointments = get_events(creds)
-        if not appointments:
-            st.write("Non ho trovato nessun paziente per domani")
-        else:
-            
-            summary = create_appointment_summary(appointments)
-            st.write(summary)
-            
-            if st.button("Invia un promemoria a questi contatti"):
-                st.write("Hellooooo")
-                st.write(appointments)
-                for appointment in appointments:
-                    phone = appointment["phone"]
-                    time = extract_time_hhmm(appointment["start"])
-                    st.spinner("Sto inviando i messaggi...")
+    appointments = get_events(creds)
+    if not appointments:
+        st.write("Non ho trovato nessun paziente per domani")
+    else:
+        
+        summary = create_appointment_summary(appointments)
+        st.write(summary)
+        
+        if st.button("Invia un promemoria a questi contatti"):
+            st.write("Hellooooo")
+            st.write(appointments)
+            for appointment in appointments:
+                phone = appointment["phone"]
+                time = extract_time_hhmm(appointment["start"])
+                with st.spinner("Sto inviando i messaggi..."):
                     send_twilio_message(phone, time)
+                st.write("Messaggi inviati!")
