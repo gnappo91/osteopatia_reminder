@@ -85,6 +85,7 @@ if st.button("Trova contatti a cui inviare il messaggio"):
             st.write(summary)
             
             if st.button("Invia un promemoria a questi contatti"):
+                st.write("Hellooooo")
                 st.write(appointments)
                 for appointment in appointments:
                     phone = appointment["phone"]
