@@ -19,7 +19,7 @@ if st.button("Trova contatti a cui inviare il messaggio"):
             "Non ho trovato nessun paziente per domani"
         else:
             
-            schedules = "\n".join(["- {} alle {}".format(name=each["name"], time = each["time"]) for each in appointments])
+            schedules = "\n".join(["- {} alle {}".format(name=each["name"], time = each["start"]) for each in appointments])
 
             st.write(f"""Ho trovato questi appuntamenti:
                      {schedules}""")
