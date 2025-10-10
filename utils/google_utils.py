@@ -109,14 +109,21 @@ def creds_to_dict(creds: Credentials) -> Dict[str, Any]:
     }
 
 
+def _to_naive_utc(dt: datetime) -> datetime:
+    """Return a naive datetime in UTC equivalent to dt."""
+    if dt.tzinfo is None:
+        return dt  # already naive — assume it's UTC
+    # convert to UTC then drop tzinfo
+    return dt.astimezone(timezone.utc).replace(tzinfo=None)
+
 def dict_to_creds(d: Dict[str, Any]) -> Credentials:
     """
     Construct a google.oauth2.credentials.Credentials from a stored dict.
-    Ensure expiry is timezone-aware (UTC) to avoid naive/aware comparisons.
+    Ensure creds.expiry is naive UTC (no tzinfo) because google-auth compares
+    against a naive utcnow(). This avoids naive/aware comparison errors.
     """
-    # Prefer using library helper if dict matches expected shape
+    # Try to recreate via library helper first (may or may not set expiry as naive)
     try:
-        # this usually handles expiry correctly
         creds = Credentials.from_authorized_user_info(d, scopes=d.get("scopes"))
     except Exception:
         creds = Credentials(
@@ -130,20 +137,24 @@ def dict_to_creds(d: Dict[str, Any]) -> Credentials:
 
     expiry = d.get("expiry")
     if expiry:
-        # Normalize common ISO forms:
-        # - "2025-10-10T12:34:56Z"  -> replace Z with +00:00
-        # - "2025-10-10T12:34:56.123456+00:00" -> parsed directly
         try:
+            # Normalize ISO forms: replace trailing Z with +00:00 so fromisoformat can parse it
             if isinstance(expiry, str) and expiry.endswith("Z"):
-                expiry = expiry[:-1] + "+00:00"
-            parsed = datetime.fromisoformat(expiry) if isinstance(expiry, str) else expiry
-            # if parsed is naive, make it UTC-aware
-            if parsed.tzinfo is None:
-                parsed = parsed.replace(tzinfo=timezone.utc)
-            creds.expiry = parsed
+                expiry_str = expiry[:-1] + "+00:00"
+                parsed = datetime.fromisoformat(expiry_str)
+            elif isinstance(expiry, str):
+                parsed = datetime.fromisoformat(expiry)
+            elif isinstance(expiry, datetime):
+                parsed = expiry
+            else:
+                parsed = None
+
+            if parsed:
+                # convert to naive UTC to match google-auth expectations
+                creds.expiry = _to_naive_utc(parsed)
         except Exception:
-            # last-resort: leave expiry None (library will handle refresh)
             creds.expiry = None
+
     return creds
 
 # ---- Main flow function ----
