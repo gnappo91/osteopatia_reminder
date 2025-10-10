@@ -212,7 +212,7 @@ def get_google_credentials() -> Optional[Credentials]:
 
     flow = Flow.from_client_config(client_config=client_config, scopes=SCOPES, redirect_uri=REDIRECT_URI)
 
-    params = st.query_params
+    params = st.experimental_get_query_params()
     if "error" in params:
         st.experimental_set_query_params()
         st.warning("Google sign-in failed or was cancelled.")
