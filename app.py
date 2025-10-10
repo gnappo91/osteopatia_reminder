@@ -83,7 +83,7 @@ if st.button("Trova contatti a cui inviare il messaggio"):
 """)
             
             if st.button("Invia un promemoria a questi contatti"):
-                for appointment in appointments.items():
+                for appointment in appointments:
                     phone = appointment["phone"]
                     time = extract_time_hhmm(appointment["start"])
                     send_twilio_message(phone, time)
