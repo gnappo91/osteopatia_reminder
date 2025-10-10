@@ -193,7 +193,7 @@ def get_google_credentials() -> Optional[Credentials]:
     st.write(auth_url)  # optionally show link; you may want to use st.markdown(f"[Sign in]({auth_url})") for clickable link
 
     # Important: stop here — prevents downstream code from running with creds == None
-    st.stop()
+    # st.stop()
     return None
 
 
