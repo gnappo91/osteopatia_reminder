@@ -78,9 +78,6 @@ if st.button("Trova contatti a cui inviare il messaggio", key="find_contacts"):
 
 # If we already have a summary/appointments in session_state, show them
 if st.session_state["appointments"]:
-    # show the stored summary
-    if st.session_state["last_summary"]:
-        st.write(st.session_state["last_summary"])
 
     # Button to send reminders (exists only when appointments are present)
     if st.button("Invia un promemoria a questi contatti", key="send_reminders"):
