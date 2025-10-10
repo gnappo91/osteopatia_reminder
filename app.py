@@ -3,7 +3,7 @@ from pdb import set_trace
 from utils.import_secrets import import_secrets
 import_secrets()
 
-from utils.google_utils import get_google_credentials, get_events
+from utils.google_utils import get_google_credentials, get_events, load_token
 from utils.twilio_utils import send_twilio_message
 
 from datetime import datetime, timedelta
@@ -48,7 +48,8 @@ st.title("Invia un messaggio di reminder a tutti i pazienti di domani")
 
 # === Initialize session_state keys only once (do NOT overwrite them on every run) ===
 if "google_credentials" not in st.session_state:
-    st.session_state["google_credentials"] = None
+    creds = load_token()
+    st.session_state["google_credentials"] = creds
 if "appointments" not in st.session_state:
     st.session_state["appointments"] = None
 if "last_summary" not in st.session_state:

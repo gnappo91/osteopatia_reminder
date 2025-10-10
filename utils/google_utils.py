@@ -20,7 +20,7 @@ SCOPES = [
     "https://www.googleapis.com/auth/contacts.readonly"
 ]
 CREDENTIALS_FILE = os.path.join("tmp","credentials_web.json")   # downloaded from Google Cloud Console
-TOKEN_FILE = "token.json"
+TOKEN_FILE = os.path.join("tmp", "token.json")
 GOOGLE_CALENDAR_ID = os.getenv("GOOGLE_CALENDAR_ID")
 
 BASE_URL = os.getenv("BASE_URL")  # <- set to your deployed domain
@@ -28,6 +28,62 @@ REDIRECT_PATH = "/oauth2callback"         # or "/" if you prefer
 REDIRECT_URI = f"{BASE_URL}{REDIRECT_PATH}"
 
 # ---- Helpers ----
+
+def _ensure_token_dir_exists(path: str):
+    d = os.path.dirname(path) or "."
+    os.makedirs(d, exist_ok=True)
+
+def save_token(creds: Credentials, path: str = TOKEN_FILE):
+    """
+    Persist credentials to disk as JSON and set restrictive permissions (owner read/write).
+    Use creds.to_json() to preserve refresh token, expiry, etc.
+    """
+    _ensure_token_dir_exists(path)
+    try:
+        # Prefer storing the full JSON from google Creds (keeps format compatible with google libs)
+        with open(path, "w", encoding="utf-8") as f:
+            f.write(creds.to_json())
+        # Restrict permissions (rw-------)
+        try:
+            os.chmod(path, 0o600)
+        except Exception:
+            # Windows or hosted environments may ignore chmod; not fatal
+            pass
+    except Exception as e:
+        # non-fatal: log/ignore but keep running
+        print(f"Warning: failed to save token to {path}: {e}")
+
+def load_token(path: str = TOKEN_FILE) -> Optional[Credentials]:
+    """
+    Load credentials from disk. Returns a google.oauth2.credentials.Credentials or None.
+    Handles parsing expiry via your dict_to_creds fallback if needed.
+    """
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, "r", encoding="utf-8") as f:
+            raw = f.read()
+        # try direct from_authorized_user_info (works for google format)
+        try:
+            info = json.loads(raw)
+        except Exception:
+            return None
+
+        # Build Credentials robustly: prefer dict_to_creds (handles expiry parsing)
+        creds = dict_to_creds(info) if isinstance(info, dict) else None
+        # if creds is None, try constructor fallback
+        if creds is None:
+            creds = Credentials.from_authorized_user_info(info, scopes=SCOPES)
+        return creds
+    except Exception as e:
+        # token corrupt — remove to avoid repeated failures
+        try:
+            os.remove(path)
+        except Exception:
+            pass
+        print(f"Warning: could not load token file: {e}")
+        return None
+    
 def load_client_config() -> Dict[str, Any]:
 
     # Fallback: use a credentials.json file included in repo
@@ -79,123 +135,86 @@ def dict_to_creds(d: Dict[str, Any]) -> Credentials:
 # ---- Main flow function ----
 def get_google_credentials() -> Optional[Credentials]:
     """
-    Returns a valid google.oauth2.credentials.Credentials or stops the Streamlit run
-    after showing the authorization URL.
-
-    Flow:
-      - Try to load token.json and return refreshed credentials if needed.
-      - Create a Flow and, if code present in query params, exchange code for tokens.
-      - Otherwise generate auth url, show link and call st.stop() to prevent downstream code.
+    Return valid Credentials. Strategy:
+      1) Try in-memory session cache (st.session_state) — keep for fast reuse during run.
+      2) Try token file on disk (load_token) and refresh if needed.
+      3) Proceed with OAuth Flow (produces token and saves it).
     """
-    # 0) quick return if already in session_state and valid
+    # 0) prefer session cache (fast during a single Streamlit run)
     cached = st.session_state.get("_google_creds")
     if isinstance(cached, Credentials):
         if cached.valid or (cached.refresh_token and cached.expired):
-            # refresh if expired but refresh token available
-            if not cached.valid:
+            if cached.expired and cached.refresh_token:
                 try:
                     cached.refresh(Request())
                 except Exception:
-                    # if refresh fails, drop cached and continue to full flow
                     st.session_state.pop("_google_creds", None)
                 else:
+                    # persist refreshed token
+                    save_token(cached)
                     return cached
             else:
                 return cached
 
-    # 0b) try token file on disk
-    if os.path.exists(TOKEN_FILE):
-        try:
-            with open(TOKEN_FILE, "r", encoding="utf-8") as f:
-                saved = json.load(f)
-            creds = dict_to_creds(saved) if isinstance(saved, dict) else Credentials.from_authorized_user_info(saved)
-            # refresh if expired and refresh_token present
-            if creds.expired and creds.refresh_token:
+    # 1) try disk token
+    creds = load_token()
+    if creds:
+        # if expired and refresh token available, refresh and persist
+        if creds.expired and creds.refresh_token:
+            try:
+                creds.refresh(Request())
+            except Exception:
+                # corrupted/stale refresh token — remove and fall through to interactive auth
                 try:
-                    creds.refresh(Request())
+                    os.remove(TOKEN_FILE)
                 except Exception:
-                    # stale token: remove file and fall through to re-auth
-                    try:
-                        os.remove(TOKEN_FILE)
-                    except Exception:
-                        pass
-                else:
-                    # persist refreshed token
-                    try:
-                        with open(TOKEN_FILE, "w", encoding="utf-8") as f:
-                            f.write(creds.to_json())
-                    except Exception:
-                        pass
-                    st.session_state["_google_creds"] = creds
-                    return creds
-            elif creds.valid:
+                    pass
+                creds = None
+            else:
+                save_token(creds)
                 st.session_state["_google_creds"] = creds
                 return creds
-        except Exception:
-            # if token file corrupt, remove and continue to new flow
-            try:
-                os.remove(TOKEN_FILE)
-            except Exception:
-                pass
+        elif creds.valid:
+            st.session_state["_google_creds"] = creds
+            return creds
 
-    # 1) create flow (web client)
+    # 2) interactive OAuth flow (same as your original logic)
     client_config = load_client_config()
-
-    # Flow.from_client_config expects client_config shaped like {"web": {...}} or {"installed": {...}}
-    # If the top-level is one of those keys, pass as-is; otherwise wrap it under "web".
     if not any(k in client_config for k in ("web", "installed")):
         client_config = {"web": client_config}
-
     if REDIRECT_URI is None:
         raise RuntimeError("REDIRECT_URI not configured. Set st.secrets['BASE_URL'] and st.secrets['REDIRECT_PATH'].")
 
     flow = Flow.from_client_config(client_config=client_config, scopes=SCOPES, redirect_uri=REDIRECT_URI)
 
-    # 2) handle redirect back from Google
     params = st.experimental_get_query_params()
     if "error" in params:
-        # user denied consent or error from provider; clear params and show message
         st.experimental_set_query_params()
         st.warning("Google sign-in failed or was cancelled.")
         return None
 
     if "code" in params:
         code = params["code"][0]
-        # Exchange the code
         flow.fetch_token(code=code)
         creds = flow.credentials
-
-        # persist credentials to disk (best-effort)
-        try:
-            with open(TOKEN_FILE, "w", encoding="utf-8") as f:
-                f.write(creds.to_json())
-        except Exception:
-            # non-fatal: continue without disk persistence
-            pass
-
-        # store in session for quick reuse during this app run
+        # persist and set restrictive perms
+        save_token(creds)
         st.session_state["_google_creds"] = creds
-
-        # clear query params to avoid re-exchange on rerun
         st.experimental_set_query_params()
         return creds
 
-    # 3) no code -> generate auth url and show it, then STOP execution so caller doesn't continue with creds None
+    # no code -> produce auth url and stop (same UI behavior)
     auth_url, state = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
         prompt="consent",
     )
     st.session_state["_oauth_state"] = state
-
     st.markdown("### Sign in with Google")
     st.write("Click the link below to sign in with Google:")
-    st.write(auth_url)  # optionally show link; you may want to use st.markdown(f"[Sign in]({auth_url})") for clickable link
-
-    # Important: stop here — prevents downstream code from running with creds == None
+    st.markdown(f"[Sign in]({auth_url})")
     st.stop()
     return None
-
 
 def get_tomorrow_bounds(tz_name="Europe/Rome"):
     tz = ZoneInfo(tz_name)
