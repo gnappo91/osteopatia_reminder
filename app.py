@@ -45,6 +45,22 @@ def format_italian_datetime(iso_dt: str, tz: str = "Europe/Rome") -> str:
     else:
         return f"{day} {month_name} alle {time_str}"
 
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
+def extract_time_hhmm(iso_dt: str, tz: str = "Europe/Rome") -> str:
+    """
+    Extract the local time (HH:MM) from an ISO datetime string with timezone offset.
+    Example: "2025-10-11T15:00:00+02:00" → "15:00"
+    """
+    # Handle UTC 'Z' suffix if present
+    if iso_dt.endswith("Z"):
+        iso_dt = iso_dt[:-1] + "+00:00"
+
+    dt = datetime.fromisoformat(iso_dt)
+    local_dt = dt.astimezone(ZoneInfo(tz))
+    return local_dt.strftime("%H:%M")
+
 
 st.title("Invia un messaggio di reminder a tutti i pazienti di domani")
 
@@ -69,5 +85,5 @@ if st.button("Trova contatti a cui inviare il messaggio"):
             if st.button("Invia un promemoria a questi contatti"):
                 for appointment in appointments.items():
                     phone = appointment["phone"]
-                    time = appointment["time"]
+                    time = extract_time_hhmm(appointment["start"])
                     send_twilio_message(phone, time)
