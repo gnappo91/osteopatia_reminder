@@ -1,6 +1,6 @@
 # app.py
 import streamlit as st
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from zoneinfo import ZoneInfo  # pro-level: uses stdlib zoneinfo (Python 3.9+)
 import os, re, json
 import phonenumbers  # optional but recommended to normalize numbers
@@ -8,7 +8,6 @@ from pdb import set_trace
 from typing import Optional, Dict, Any
 
 # Google libs
-from google_auth_oauthlib.flow import InstalledAppFlow
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
@@ -113,22 +112,37 @@ def creds_to_dict(creds: Credentials) -> Dict[str, Any]:
 def dict_to_creds(d: Dict[str, Any]) -> Credentials:
     """
     Construct a google.oauth2.credentials.Credentials from a stored dict.
-    If expiry present, parse it and set on the credentials object.
+    Ensure expiry is timezone-aware (UTC) to avoid naive/aware comparisons.
     """
-    creds = Credentials(
-        token=d.get("token"),
-        refresh_token=d.get("refresh_token"),
-        token_uri=d.get("token_uri"),
-        client_id=d.get("client_id"),
-        client_secret=d.get("client_secret"),
-        scopes=d.get("scopes"),
-    )
+    # Prefer using library helper if dict matches expected shape
+    try:
+        # this usually handles expiry correctly
+        creds = Credentials.from_authorized_user_info(d, scopes=d.get("scopes"))
+    except Exception:
+        creds = Credentials(
+            token=d.get("token"),
+            refresh_token=d.get("refresh_token"),
+            token_uri=d.get("token_uri"),
+            client_id=d.get("client_id"),
+            client_secret=d.get("client_secret"),
+            scopes=d.get("scopes"),
+        )
+
     expiry = d.get("expiry")
     if expiry:
+        # Normalize common ISO forms:
+        # - "2025-10-10T12:34:56Z"  -> replace Z with +00:00
+        # - "2025-10-10T12:34:56.123456+00:00" -> parsed directly
         try:
-            creds.expiry = datetime.fromisoformat(expiry)
+            if isinstance(expiry, str) and expiry.endswith("Z"):
+                expiry = expiry[:-1] + "+00:00"
+            parsed = datetime.fromisoformat(expiry) if isinstance(expiry, str) else expiry
+            # if parsed is naive, make it UTC-aware
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            creds.expiry = parsed
         except Exception:
-            # fallback: ignore expiry if parsing fails
+            # last-resort: leave expiry None (library will handle refresh)
             creds.expiry = None
     return creds
 
