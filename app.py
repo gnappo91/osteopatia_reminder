@@ -61,6 +61,12 @@ def extract_time_hhmm(iso_dt: str, tz: str = "Europe/Rome") -> str:
     local_dt = dt.astimezone(ZoneInfo(tz))
     return local_dt.strftime("%H:%M")
 
+def create_appointment_summary(appointments):
+    schedules = "\n".join(["- **{name}**: {time}".format(name=each["name"], time = format_italian_datetime(each["start"])) for each in appointments])
+    return f"""Ho trovato questi appuntamenti:
+
+{schedules}
+"""
 
 st.title("Invia un messaggio di reminder a tutti i pazienti di domani")
 
@@ -75,12 +81,8 @@ if st.button("Trova contatti a cui inviare il messaggio"):
             st.write("Non ho trovato nessun paziente per domani")
         else:
             
-            schedules = "\n".join(["- **{name}**: {time}".format(name=each["name"], time = format_italian_datetime(each["start"])) for each in appointments])
-
-            st.write(f"""Ho trovato questi appuntamenti:
-
-{schedules}
-""")
+            summary = create_appointment_summary(appointments)
+            st.write(summary)
             
             if st.button("Invia un promemoria a questi contatti"):
                 for appointment in appointments:
