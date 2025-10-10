@@ -49,6 +49,7 @@ st.title("Invia un messaggio di reminder a tutti i pazienti di domani")
 # === Initialize session_state keys only once (do NOT overwrite them on every run) ===
 if "google_credentials" not in st.session_state:
     creds = load_token()
+    st.write(creds)
     st.session_state["google_credentials"] = creds
 if "appointments" not in st.session_state:
     st.session_state["appointments"] = None
