@@ -1,0 +1,7 @@
+.env
+credentials.json
+.streamlit/secrets.toml
+token.json
+*__pycache__
+tmp/credentials_local.json
+tmp/credentials_web.json
