@@ -183,7 +183,7 @@ def get_google_credentials() -> Optional[Credentials]:
     # 3) no code -> generate auth url and show it, then STOP execution so caller doesn't continue with creds None
     auth_url, state = flow.authorization_url(
         access_type="offline",
-        include_granted_scopes=True,
+        include_granted_scopes="true",
         prompt="consent",
     )
     st.session_state["_oauth_state"] = state
