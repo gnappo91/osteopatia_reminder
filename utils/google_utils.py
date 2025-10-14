@@ -1,17 +1,20 @@
 # app.py
 import streamlit as st
 from datetime import datetime, timedelta, timezone
+import unicodedata
 from zoneinfo import ZoneInfo  # pro-level: uses stdlib zoneinfo (Python 3.9+)
 import os, re, json
 import phonenumbers  # optional but recommended to normalize numbers
 from pdb import set_trace
 from typing import Optional, Dict, Any
+import re
 
 # Google libs
 from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import Request
 from googleapiclient.discovery import build
 from google_auth_oauthlib.flow import Flow
+from google_auth_oauthlib.flow import InstalledAppFlow
 
 # Config / scopes
 SCOPES = [
@@ -19,6 +22,9 @@ SCOPES = [
     "https://www.googleapis.com/auth/contacts.readonly"
 ]
 CREDENTIALS_FILE = os.path.join("tmp","credentials_web.json")   # downloaded from Google Cloud Console
+is_local = st.secrets["env"].get("LOCAL_DEV")=="True"
+if is_local:
+    CREDENTIALS_FILE = os.path.join("tmp","credentials_local.json")
 TOKEN_FILE = os.path.join("tmp", "token.json")
 GOOGLE_CALENDAR_ID = os.getenv("GOOGLE_CALENDAR_ID")
 
@@ -27,6 +33,26 @@ REDIRECT_PATH = "/oauth2callback"         # or "/" if you prefer
 REDIRECT_URI = f"{BASE_URL}{REDIRECT_PATH}"
 
 # ---- Helpers ----
+
+def normalize_query(q: str) -> str:
+    # Normalize Unicode (e.g., é -> é)
+    q = unicodedata.normalize('NFKD', q)
+    # Replace curly quotes with straight ones
+    q = q.replace('’', " ").replace('‘', " ")
+    q = q.replace('“', ' ').replace('”', ' ')
+    q = q.replace("'", " ")
+
+    phone_pattern = re.compile(r'(?:\+?0{0,2}39)?\s*[\d\s.\-]{6,15}')
+    
+    # Remove phone number and strip extra whitespace
+    cleaned = phone_pattern.sub('', q).strip()
+    
+    # Remove final pz at the end
+    cleaned = re.sub(r'\s*[Pp][Zz]\s*$', '', cleaned).strip()
+    
+    # Collapse multiple spaces if phone number was in the middle
+    cleaned = re.sub(r'\s{2,}', ' ', cleaned)
+    return cleaned
 
 def _ensure_token_dir_exists(path: str):
     d = os.path.dirname(path) or "."
@@ -205,12 +231,36 @@ def get_google_credentials() -> Optional[Credentials]:
 
     # 2) interactive OAuth flow (same as your original logic)
     client_config = load_client_config()
+    # client_config may be the JSON content from Google console; ensure it has either "web" or "installed"
     if not any(k in client_config for k in ("web", "installed")):
         client_config = {"web": client_config}
-    if REDIRECT_URI is None:
-        raise RuntimeError("REDIRECT_URI not configured. Set st.secrets['BASE_URL'] and st.secrets['REDIRECT_PATH'].")
 
-    flow = Flow.from_client_config(client_config=client_config, scopes=SCOPES, redirect_uri=REDIRECT_URI)
+    # If you're running locally prefer the installed-app (local server) flow so you don't need a public redirect URI.
+    running_local = False
+    # heuristics: explicit flag in secrets OR redirect URI is localhost
+    if st.secrets.get("LOCAL_DEV", False) or (REDIRECT_URI and REDIRECT_URI.startswith("http://localhost")):
+        running_local = True
+
+    if running_local:
+        # Use the InstalledAppFlow which opens a browser and runs a local HTTP listener.
+        flow = InstalledAppFlow.from_client_config(client_config, scopes=SCOPES)
+        # run_local_server will open a browser and block until the callback arrives.
+        # `port=0` chooses a free port; you can pick a fixed port if you want a stable redirect URI.
+        creds = flow.run_local_server(port=0)
+        save_token(creds)
+        st.session_state["_google_creds"] = creds
+        return creds
+
+    # Otherwise continue with the web-based Flow (used when you have a public redirect URL)
+    if REDIRECT_URI is None:
+        raise RuntimeError(
+            "REDIRECT_URI not configured. Set st.secrets['BASE_URL'] and st.secrets['REDIRECT_PATH'], "
+            "or enable LOCAL_DEV in st.secrets for local InstalledAppFlow."
+        )
+
+    flow = Flow.from_client_config(
+        client_config=client_config, scopes=SCOPES, redirect_uri=REDIRECT_URI
+    )
 
     params = st.experimental_get_query_params()
     if "error" in params:
@@ -222,13 +272,11 @@ def get_google_credentials() -> Optional[Credentials]:
         code = params["code"][0]
         flow.fetch_token(code=code)
         creds = flow.credentials
-        # persist and set restrictive perms
         save_token(creds)
         st.session_state["_google_creds"] = creds
         st.experimental_set_query_params()
         return creds
 
-    # no code -> produce auth url and stop (same UI behavior)
     auth_url, state = flow.authorization_url(
         access_type="offline",
         include_granted_scopes="true",
@@ -273,14 +321,18 @@ def search_contacts_by_name(people_service, name):
     except Exception:
         pass
     people_service.people().connections().list(resourceName="people/me",pageSize=200,pageToken=None,personFields="names,emailAddresses,phoneNumbers,metadata").execute()
-    resp = people_service.people().searchContacts(query=name, pageSize=10, readMask="names,phoneNumbers").execute()
+    resp = people_service.people().searchContacts(query=normalize_query(name), pageSize=10, readMask="names,phoneNumbers").execute()
+
     if not resp.get("results", []):
         return
     person = resp.get("results", [])[0]["person"] # Get the first matching contact
-    name = person["names"][0].get("displayName")
-    phone = person.get("phoneNumbers", [])[0]["value"]
+    google_name = person["names"][0].get("displayName")
+    if person.get("phoneNumbers"):
+        phone = person.get("phoneNumbers")[0]["canonicalForm"]
+    else:
+        phone = None
     out = {
-            "name": name,
+            "name": google_name,
             "phone": phone
         }
     return out
@@ -313,14 +365,18 @@ def get_events(creds):
             found_contact = search_contacts_by_name(people_service, summary)
             if not found_contact:
                 print(f"Nessun telefono associato all'evento '{summary}'")
+                appointments.append({"event_name":summary,"name":summary,"start":event_start,"phone":None})
                 continue
             phone_raw = found_contact["phone"]
+            if not phone_raw:
+                appointments.append({"event_name":summary,"name":found_contact["name"],"start":event_start,"phone":None})
+                continue
             phone_e164 = sanitize_phone(phone_raw)
             if not phone_e164 or len(phone_e164) < 6:
                 failures.append((summary, phone_raw, "bad_format"))
                 print(f"   ✖ bad phone format: {phone_raw}")
                 continue
-            appointments.append({"name":found_contact["name"],"start":event_start,"phone":phone_e164})
+            appointments.append({"event_name":summary,"name":found_contact["name"],"start":event_start,"phone":phone_e164})
         return appointments
 
 def fetch_events():

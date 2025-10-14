@@ -37,11 +37,19 @@ def extract_time_hhmm(iso_dt: str, tz: str = "Europe/Rome") -> str:
     local_dt = dt.astimezone(ZoneInfo(tz))
     return local_dt.strftime("%H:%M")
 
-def create_appointment_summary(appointments):
-    schedules = "\n".join(["- **{name}**: {time}".format(name=each["name"], time = format_italian_datetime(each["start"])) for each in appointments])
-    return f"""Ho trovato questi appuntamenti:
+def create_appointment_summary(events_list):
+    events_string = "\n".join(["- **{event_name}**: {time}".format(
+        event_name=each["event_name"],
+        time = format_italian_datetime(each["start"])) for each in events_list])
+    appointments_list = [each for each in events_list if each["phone"]]
+    appointments = "\n".join(["- **{name}**: {time}".format(
+        name=each["name"],
+        time = format_italian_datetime(each["start"])) for each in appointments_list])
+    return f"""Per domani sono presenti questi eventi all'interno della categoria "Lavoro":
+{events_string}
 
-{schedules}
+Il messaggio verrà inviato a questi pazienti:
+{appointments}
 """
 
 st.title("Invia un messaggio di reminder a tutti i pazienti di domani")
@@ -81,13 +89,14 @@ if st.button("Trova contatti a cui inviare il messaggio", key="find_contacts"):
 if st.session_state["appointments"]:
 
     # Button to send reminders (exists only when appointments are present)
-    if st.button("Invia un promemoria a questi contatti", key="send_reminders"):
+    if st.button("Invia il promemoria", key="send_reminders"):
         # Use the appointments stored in session_state (persisted across reruns)
         appointments_to_send = st.session_state["appointments"]
         if not appointments_to_send:
-            st.warning("Nessun appuntamento da inviare.")
+            st.warning("Nessun promemoria da inviare.")
         else:
             # iterate and send messages
+            appointments_to_send = [each for each in appointments_to_send if each["phone"]]
             for appointment in appointments_to_send:
                 phone = appointment.get("phone")
                 time = extract_time_hhmm(appointment["start"])
