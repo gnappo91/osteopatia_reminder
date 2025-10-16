@@ -37,6 +37,24 @@ def extract_time_hhmm(iso_dt: str, tz: str = "Europe/Rome") -> str:
     local_dt = dt.astimezone(ZoneInfo(tz))
     return local_dt.strftime("%H:%M")
 
+def format_italian_date_time(iso_dt: str, tz: str = "Europe/Rome") -> str:
+    """
+    Convert an ISO datetime string with offset to a string like:
+      "*11 ottobre* alle ore *15:00*"
+    """
+    # Handle UTC 'Z' suffix
+    if iso_dt.endswith("Z"):
+        iso_dt = iso_dt[:-1] + "+00:00"
+
+    dt = datetime.fromisoformat(iso_dt)
+    local_dt = dt.astimezone(ZoneInfo(tz))
+
+    day = local_dt.day
+    month_name = ITALIAN_MONTHS[local_dt.month - 1]
+    time_str = local_dt.strftime("%H:%M")
+
+    return f"*{day} {month_name}* alle ore *{time_str}*"
+
 def create_appointment_summary(events_list):
     events_string = "\n".join(["- **{event_name}**: {time}".format(
         event_name=each["event_name"],
@@ -99,7 +117,8 @@ if st.session_state["appointments"]:
             appointments_to_send = [each for each in appointments_to_send if each["phone"]]
             for appointment in appointments_to_send:
                 phone = appointment.get("phone")
-                time = extract_time_hhmm(appointment["start"])
+                #time = extract_time_hhmm(appointment["start"])
+                time = format_italian_date_time(appointment["start"])
                 with st.spinner(f"Sto inviando il messaggio a {phone}..."):
                     send_twilio_message(phone, time)
             st.success("Messaggi inviati!")

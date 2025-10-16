@@ -13,7 +13,7 @@ def send_twilio_message(to, time):
         message = client.messages.create(
         from_=f'whatsapp:{WHATSAPP_PHONE_NUMBER}',
         content_sid=TEMPLATE_ID,
-        content_variables=f'{{"1":"{time}"}}',
+        content_variables=f'{{"2":"{time}"}}',
         to=f'whatsapp:{to}'
         )
     except Exception as _:
