@@ -1,9 +1,9 @@
 streamlit==1.48.0
-pandas
-google-api-python-client
-google-auth-httplib2
-google-auth-oauthlib
-requests
-phonenumbers
+pandas==2.1.1
+google-api-python-client==2.105.0
+google-auth-httplib2==0.1.1
+google-auth-oauthlib==1.1.0
+requests==2.31.0
+phonenumbers==9.0.15
 python-dotenv
-twilio
+twilio==9.8.3
