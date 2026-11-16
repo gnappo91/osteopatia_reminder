@@ -4,5 +4,7 @@ https://dimarcantonio-reminder.streamlit.app/
 Per controllare lo stato dell'app, effettuare login su streamlit utilizzando account github
 https://share.streamlit.io/
 
-Per loggarsi su twilio, utilizzare email meta
+Per loggarsi su twilio, utilizzare email meta.
+Billing status: https://1console.twilio.com/organization/OR1a42ac8345ab9a0a54037819d4c8216c/billing/group/billing_group_67age2x4nzcjwfe1m6nb6ph7rc/overview
 
+Ho aggiunto il forward delle email provenienti da twilio e indirizzate all'email meta, sulla mia email.
